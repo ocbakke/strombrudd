@@ -1,0 +1,69 @@
+name: Overvåk strømbrudd i Østfold
+
+on:
+  schedule:
+    - cron: "3/5 * * * *"
+
+  workflow_dispatch:
+    inputs:
+      send_test_email:
+        description: "Send bare en testmelding"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ostfold-strombrudd-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Hent repository
+        uses: actions/checkout@v5
+
+      - name: Sett opp Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Kontroller strømbrudd
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_SECURITY: ${{ secrets.SMTP_SECURITY }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          SEND_TEST_EMAIL: ${{ inputs.send_test_email }}
+
+        shell: bash
+
+        run: |
+          if [[ "$SEND_TEST_EMAIL" == "true" ]]; then
+            python outage_monitor.py --test-email
+          else
+            python outage_monitor.py
+          fi
+
+      - name: Lagre siste observerte tilstand
+        shell: bash
+
+        run: |
+          if git diff --quiet -- state/outages.json; then
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add state/outages.json
+          git commit -m "Oppdater strømbruddstatus [skip ci]"
+          git push
