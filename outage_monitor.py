@@ -129,6 +129,16 @@ def _format_time(value: str | None) -> str:
     return parsed.astimezone(OSLO).strftime("%d.%m.%Y kl. %H.%M")
 
 
+def _outage_kind(value: Any) -> str:
+    """Normalize the source label without matching ``planned`` in ``unplanned``."""
+    raw = str(value or "").strip().casefold()
+    if raw == "planned" or raw.startswith("planned "):
+        return "planned"
+    if raw == "planlagt" or raw.startswith("planlagt "):
+        return "planned"
+    return "unplanned"
+
+
 def fetch_json(url: str, params: dict[str, Any], retries: int = 3) -> dict[str, Any]:
     query = urllib.parse.urlencode(params)
     request = urllib.request.Request(
@@ -180,8 +190,7 @@ def fetch_elvia() -> list[Outage]:
     for feature in payload.get("features", []):
         attrs = feature.get("attributes", {})
         source_id = str(attrs.get("OBJECTID", ""))
-        raw_type = str(attrs.get("avbruddstype") or "").casefold()
-        kind = "planned" if "planned" in raw_type or "planlagt" in raw_type else "unplanned"
+        kind = _outage_kind(attrs.get("avbruddstype"))
         started = attrs.get("strombruddoppdaget") or attrs.get("utkoblingstart")
         station = str(attrs.get("nettstasjon") or "").strip()
         outages.append(
