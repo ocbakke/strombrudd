@@ -64,6 +64,10 @@ MIN_CUSTOMERS = int(os.getenv("MIN_CUSTOMERS", "50"))
 MIN_COMBINED_CUSTOMERS = int(os.getenv("MIN_COMBINED_CUSTOMERS", "100"))
 MIN_COUNT_INCREASE = int(os.getenv("MIN_COUNT_INCREASE", "100"))
 MIN_DELAY_SECONDS = int(os.getenv("MIN_DELAY_MINUTES", "60")) * 60
+ELVIA_SCOPE = (os.getenv("ELVIA_SCOPE") or "ostfold").strip().casefold()
+MONITOR_LABEL = os.getenv("MONITOR_LABEL") or (
+    "Hele Elvias nettområde" if ELVIA_SCOPE == "all" else "Østfold"
+)
 CRITICAL_KEYWORDS = {
     word.strip().casefold()
     for word in os.getenv(
@@ -147,11 +151,22 @@ def fetch_json(url: str, params: dict[str, Any], retries: int = 3) -> dict[str, 
 
 
 def fetch_elvia() -> list[Outage]:
-    quoted = ",".join(f"'{name.replace(chr(39), chr(39) * 2)}'" for name in OSTFOLD_MUNICIPALITIES)
+    if ELVIA_SCOPE == "all":
+        where = "1=1"
+    elif ELVIA_SCOPE == "ostfold":
+        quoted = ",".join(
+            f"'{name.replace(chr(39), chr(39) * 2)}'"
+            for name in OSTFOLD_MUNICIPALITIES
+        )
+        where = f"kommune IN ({quoted})"
+    else:
+        raise RuntimeError(
+            f"Ukjent ELVIA_SCOPE={ELVIA_SCOPE!r}. Bruk 'all' eller 'ostfold'."
+        )
     payload = fetch_json(
         ELVIA_SERVICE,
         {
-            "where": f"kommune IN ({quoted})",
+            "where": where,
             "outFields": (
                 "OBJECTID,antallkunder,kommune,poststed,strombruddoppdaget,"
                 "utkoblingstart,utkoblingslutt,avbruddstype,nettstasjon"
@@ -361,7 +376,14 @@ def detect_alerts(
             individually_alerted.add(key)
 
     # Flere små, samtidige brudd kan samlet være nyhetsverdige.
-    for municipality in OSTFOLD_MUNICIPALITIES:
+    municipalities = sorted(
+        {
+            outage.municipality
+            for outage in (*current.values(), *previous.values())
+            if outage.source in successful_sources
+        }
+    )
+    for municipality in municipalities:
         group = tuple(
             outage
             for outage in current.values()
@@ -441,7 +463,7 @@ def render_email(alerts: Iterable[Alert]) -> tuple[str, str]:
     else:
         subject = f"[Strømbrudd] {len(alerts)} hendelser i {', '.join(municipalities)}"
 
-    lines = ["STRØMBRUDDVARSEL – ØSTFOLD", ""]
+    lines = [f"STRØMBRUDDVARSEL – {MONITOR_LABEL.upper()}", ""]
     for alert in alerts:
         lines.extend([alert.headline, alert.details])
         for outage in alert.outages:
