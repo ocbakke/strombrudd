@@ -48,7 +48,7 @@ jobs:
           SEND_TEST_EMAIL: ${{ inputs.send_test_email }}
         shell: bash
         run: |
-          if [[ "$SEND_TEST_EMAIL" == "true" ]]; then
+          if [[ "$SEND_TEST_EMAIL" == "false" ]]; then
             python outage_monitor.py --test-email
           else
             python outage_monitor.py
